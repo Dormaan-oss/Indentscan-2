@@ -1,0 +1,17 @@
+{
+  "name": "IdentScan",
+  "short_name": "IdentScan",
+  "description": "Identnummern aus Stücklisten fotografieren und als Code128-Strichcode anzeigen",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#14161a",
+  "theme_color": "#1a1d21",
+  "lang": "de",
+  "icons": [
+    { "src": "assets/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "assets/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "assets/icon-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
