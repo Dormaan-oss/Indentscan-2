@@ -123,16 +123,46 @@
 
   .barcode-sheet{
     position:fixed; inset:0; background: #fff; z-index:60; display:flex; flex-direction:column;
-    align-items:center; justify-content:center; padding:24px; color:#111;
+    color:#111;
+  }
+  .bc-scroller{
+    flex:1; display:flex; overflow-x:auto; overflow-y:hidden; scroll-snap-type:x mandatory;
+    -webkit-overflow-scrolling:touch;
+  }
+  .bc-page{
+    flex:0 0 100%; scroll-snap-align:center; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; padding: 24px 28px; position:relative; min-width:100%;
   }
   .barcode-sheet .bc-id{ font-family:var(--mono); font-size:26px; font-weight:700; margin-top:18px; letter-spacing:0.04em;}
   .barcode-sheet .bc-benennung{ font-size:14px; color:#555; margin-top:6px; text-align:center; max-width: 300px; }
-  .barcode-sheet svg{ max-width:100%; height:auto; }
+  .bc-page svg{ max-width:100%; height:auto; min-height:90px; }
   .bc-close{
     position:absolute; top: calc(18px + env(safe-area-inset-top)); right:18px; background:#111; color:#fff;
-    border:none; width:38px; height:38px; border-radius:50%; font-size:18px;
+    border:none; width:38px; height:38px; border-radius:50%; font-size:18px; z-index:65;
   }
-  .bc-hint{ position:absolute; bottom: calc(28px + env(safe-area-inset-bottom)); color:#888; font-size:12px; }
+  .bc-hint{ text-align:center; padding-bottom: calc(14px + env(safe-area-inset-bottom)); color:#999; font-size:11px; flex-shrink:0; }
+
+  .bc-dots{ display:flex; gap:6px; justify-content:center; padding-top:4px; flex-shrink:0; }
+  .bc-dots span{ width:6px; height:6px; border-radius:50%; background:#ddd; }
+  .bc-dots span.active{ background:#111; }
+
+  .qf-input{
+    width:100%; max-width:280px; font-family:var(--mono); font-size:18px; text-align:center;
+    border:none; border-bottom:2px solid #ddd; padding:8px 4px; color:#111; background:transparent;
+  }
+  .qf-input:focus{ outline:none; border-bottom-color:#111; }
+  .qf-label{ font-size:11px; color:#999; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.06em; }
+  .qf-svg-wrap{ margin-top:20px; min-height:110px; display:flex; align-items:center; justify-content:center; }
+  .qf-empty-hint{ font-size:12px; color:#bbb; margin-top:20px; }
+  .qf-delete{
+    position:absolute; top:14px; right:14px; background:none; border:none; color:#bbb; font-size:18px; padding:6px;
+  }
+
+  .bc-add-page .qf-add-btn{
+    width:64px; height:64px; border-radius:50%; border:2px dashed #ccc; background:none; color:#ccc; font-size:30px;
+    display:flex; align-items:center; justify-content:center; line-height:1;
+  }
+  .bc-add-page .qf-add-label{ font-size:12px; color:#aaa; margin-top:14px; text-align:center; max-width:200px; }
 
   .toast{
     position:fixed; left:50%; transform:translateX(-50%); bottom: 110px; background:var(--panel-2);
@@ -142,6 +172,7 @@
   .toast.show{ opacity:1; }
 
   ::-webkit-scrollbar{ display:none; }
+
 
   #landscapeWarning{
     display:none; position:fixed; inset:0; background:var(--bg); z-index:999;
@@ -208,10 +239,20 @@
 
 <div class="barcode-sheet" id="barcodeSheet" style="display:none;">
   <button class="bc-close" id="bcClose">✕</button>
-  <svg id="bcSvg"></svg>
-  <div class="bc-id" id="bcIdText"></div>
-  <div class="bc-benennung" id="bcBenennungText"></div>
-  <div class="bc-hint">Zum Schließen tippen oder wischen</div>
+  <div class="bc-scroller" id="bcScroller">
+    <div class="bc-page" id="bcPage0">
+      <svg id="bcSvg"></svg>
+      <div class="bc-id" id="bcIdText"></div>
+      <div class="bc-benennung" id="bcBenennungText"></div>
+    </div>
+    <div id="qfPages" style="display:contents;"></div>
+    <div class="bc-page bc-add-page" id="bcAddPage">
+      <button class="qf-add-btn" id="qfAddBtn">+</button>
+      <div class="qf-add-label">Weiteres Feld anlegen<br>(z. B. Lagerfach, Personalnummer)</div>
+    </div>
+  </div>
+  <div class="bc-dots" id="bcDots"></div>
+  <div class="bc-hint">Nach rechts wischen für weitere Codes</div>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -229,13 +270,14 @@
 (function(){
   "use strict";
 
-  const APP_VERSION = "v4";
+  const APP_VERSION = "v5";
   document.getElementById("appVersion").textContent = APP_VERSION;
 
   // ---------- Persistence ----------
   const LS_LAST = "identscan_last_v1";
   const LS_KNOWN = "identscan_known_ids_v1";       // array of confirmed-good ID strings
   const LS_CORRECTIONS = "identscan_corrections_v1"; // { rawOcrString: correctedString }
+  const LS_QUICKFIELDS = "identscan_quickfields_v1"; // [{id, value}] - persistente Zusatzfelder (Lagerfach, Personalnr. ...)
 
   function loadJSON(key, fallback){
     try{ const v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback; }
@@ -465,10 +507,16 @@
   const toast = document.getElementById("toast");
 
   const barcodeSheet = document.getElementById("barcodeSheet");
+  const bcScroller = document.getElementById("bcScroller");
   const bcSvg = document.getElementById("bcSvg");
   const bcIdText = document.getElementById("bcIdText");
   const bcBenennungText = document.getElementById("bcBenennungText");
   const bcClose = document.getElementById("bcClose");
+  const bcPage0 = document.getElementById("bcPage0");
+  const qfPages = document.getElementById("qfPages");
+  const bcAddPage = document.getElementById("bcAddPage");
+  const qfAddBtn = document.getElementById("qfAddBtn");
+  const bcDots = document.getElementById("bcDots");
 
   function showToast(msg){
     toast.textContent = msg;
@@ -675,10 +723,124 @@
     bcIdText.textContent = id;
     bcBenennungText.textContent = benennung || "";
     barcodeSheet.style.display = "flex";
+    renderQuickFieldPages();
+    // Immer bei der Identnummer-Seite starten, ganz gleich wo zuletzt gewischt wurde.
+    requestAnimationFrame(() => { bcScroller.scrollLeft = 0; updateDots(); });
   }
   function hideBarcode(){ barcodeSheet.style.display = "none"; }
   bcClose.addEventListener("click", hideBarcode);
-  barcodeSheet.addEventListener("click", (e) => { if(e.target === barcodeSheet) hideBarcode(); });
+
+  // ---------- Persistente Zusatzfelder (Lagerfach, Personalnummer, etc.) ----------
+  // Bleiben unabhängig von der gerade angezeigten Identnummer erhalten.
+  let quickFields = loadJSON(LS_QUICKFIELDS, []);
+
+  function saveQuickFields(){ saveJSON(LS_QUICKFIELDS, quickFields); }
+
+  function escapeHtml(s){
+    return String(s).replace(/[&<>"']/g, (c) => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[c]));
+  }
+
+  function renderQuickFieldPages(){
+    qfPages.innerHTML = quickFields.map(f => `
+      <div class="bc-page qf-page" data-id="${f.id}">
+        <button class="qf-delete" data-action="delete" data-id="${f.id}" aria-label="Feld löschen">🗑</button>
+        <div class="qf-label">Freies Feld</div>
+        <input class="qf-input" type="text" data-id="${f.id}" placeholder="z. B. Lagerfach oder Personalnr." value="${escapeHtml(f.value || "")}">
+        <div class="qf-svg-wrap">
+          <svg data-svg-id="${f.id}"></svg>
+          <div class="qf-empty-hint" data-hint-id="${f.id}" style="display:none;">Eingabe tippen – Code erscheint automatisch</div>
+        </div>
+      </div>
+    `).join("");
+
+    quickFields.forEach(f => renderQuickFieldBarcode(f.id, f.value));
+
+    qfPages.querySelectorAll(".qf-input").forEach(input => {
+      input.addEventListener("input", () => {
+        const id = input.dataset.id;
+        const entry = quickFields.find(f => f.id === id);
+        if(entry){
+          entry.value = input.value;
+          saveQuickFields();
+          renderQuickFieldBarcode(id, input.value);
+        }
+      });
+    });
+    qfPages.querySelectorAll('[data-action="delete"]').forEach(btn => {
+      btn.addEventListener("click", () => deleteQuickField(btn.dataset.id));
+    });
+
+    updateDots();
+  }
+
+  function renderQuickFieldBarcode(id, value){
+    const svg = qfPages.querySelector(`svg[data-svg-id="${id}"]`);
+    const hint = qfPages.querySelector(`[data-hint-id="${id}"]`);
+    if(!svg) return;
+    const trimmed = (value || "").trim();
+    if(!trimmed){
+      svg.innerHTML = "";
+      svg.style.display = "none";
+      if(hint) hint.style.display = "block";
+      return;
+    }
+    try{
+      JsBarcode(svg, trimmed, {
+        format: "CODE128", lineColor: "#000", width: 3, height: 110, displayValue: false, margin: 10
+      });
+      svg.style.display = "block";
+      if(hint) hint.style.display = "none";
+    }catch(e){
+      svg.innerHTML = "";
+      svg.style.display = "none";
+      if(hint){ hint.style.display = "block"; hint.textContent = "Zeichen können nicht als Code dargestellt werden"; }
+    }
+  }
+
+  function addQuickField(){
+    const id = "qf_" + Date.now() + "_" + Math.random().toString(36).slice(2,7);
+    quickFields.push({ id, value: "" });
+    saveQuickFields();
+    renderQuickFieldPages();
+    requestAnimationFrame(() => {
+      const page = qfPages.querySelector(`.qf-page[data-id="${id}"]`);
+      if(page) page.scrollIntoView({ behavior:"smooth", inline:"center", block:"nearest" });
+      setTimeout(() => {
+        const input = qfPages.querySelector(`input[data-id="${id}"]`);
+        if(input) input.focus();
+      }, 350);
+    });
+  }
+  qfAddBtn.addEventListener("click", addQuickField);
+
+  function deleteQuickField(id){
+    quickFields = quickFields.filter(f => f.id !== id);
+    saveQuickFields();
+    renderQuickFieldPages();
+    requestAnimationFrame(() => { bcScroller.scrollLeft = 0; updateDots(); });
+  }
+
+  function updateDots(){
+    const totalPages = 1 + quickFields.length + 1; // Identnummer + Freifelder + Add-Seite
+    bcDots.innerHTML = "";
+    for(let i=0;i<totalPages;i++){
+      const dot = document.createElement("span");
+      bcDots.appendChild(dot);
+    }
+    highlightActiveDot();
+  }
+  function highlightActiveDot(){
+    const pageWidth = bcScroller.clientWidth || 1;
+    const idx = Math.round(bcScroller.scrollLeft / pageWidth);
+    Array.from(bcDots.children).forEach((dot,i) => dot.classList.toggle("active", i===idx));
+  }
+  let scrollTicking = false;
+  bcScroller.addEventListener("scroll", () => {
+    if(scrollTicking) return;
+    scrollTicking = true;
+    requestAnimationFrame(() => { highlightActiveDot(); scrollTicking = false; });
+  });
+
 
   // ---------- Hochformat erzwingen (greift im installierten/eigenständigen App-Modus) ----------
   if(screen.orientation && screen.orientation.lock){
