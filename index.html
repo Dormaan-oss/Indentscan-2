@@ -84,6 +84,14 @@
     width:44px; height:44px; font-size:19px; display:flex; align-items:center; justify-content:center;
   }
   .row .printbtn:active{ transform: scale(0.94); }
+  .row.flagged{ border-color: var(--red); background: rgba(217,83,79,0.08); }
+  .row .flagbtn{
+    flex:0 0 auto; background:none; border:none; color:var(--muted);
+    width:36px; height:44px; display:flex; align-items:center; justify-content:center;
+  }
+  .row .flagbtn svg{ width:19px; height:19px; }
+  .row .flagbtn.active{ color:var(--red); }
+  .row .flagbtn:active{ transform: scale(0.92); }
   .conf-dot{ width:7px; height:7px; border-radius:50%; flex:0 0 auto; }
   .conf-dot.high{ background:var(--green); }
   .conf-dot.mid{ background:var(--amber); }
@@ -155,7 +163,7 @@
   .qf-svg-wrap{ margin-top:20px; min-height:110px; display:flex; align-items:center; justify-content:center; }
   .qf-empty-hint{ font-size:12px; color:#bbb; margin-top:20px; }
   .qf-delete{
-    position:absolute; top:14px; right:14px; background:none; border:none; color:#bbb; font-size:18px; padding:6px;
+    position:absolute; top:14px; left:50%; transform:translateX(-50%); background:none; border:none; color:#bbb; font-size:18px; padding:6px;
   }
 
   .bc-add-page .qf-add-btn{
@@ -270,7 +278,7 @@
 (function(){
   "use strict";
 
-  const APP_VERSION = "v5";
+  const APP_VERSION = "v6";
   document.getElementById("appVersion").textContent = APP_VERSION;
 
   // ---------- Persistence ----------
@@ -632,10 +640,21 @@
 
   function buildRow(c, idx, result){
     const row = document.createElement("div");
-    row.className = "row" + (c.confidence === "low" ? " low-conf" : "");
+    row.className = "row" + (c.confidence === "low" ? " low-conf" : "") + (c.flagged ? " flagged" : "");
 
     const dot = document.createElement("div");
     dot.className = "conf-dot " + confClass(c.confidence);
+
+    const flagBtn = document.createElement("button");
+    flagBtn.className = "flagbtn" + (c.flagged ? " active" : "");
+    flagBtn.setAttribute("aria-label","Zur Bearbeitung markieren");
+    flagBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 3v18h1.6v-6.4h9.9l-2.3-4.3 2.3-4.3H6.9V3H6z"/></svg>';
+    flagBtn.addEventListener("click", () => {
+      c.flagged = !c.flagged;
+      flagBtn.classList.toggle("active", c.flagged);
+      row.classList.toggle("flagged", c.flagged);
+      persistCurrentResult(result);
+    });
 
     const idBox = document.createElement("div");
     idBox.className = "idbox";
@@ -676,6 +695,7 @@
       showBarcode(idInput.value.trim(), c.benennung);
     });
 
+    row.appendChild(flagBtn);
     row.appendChild(dot);
     row.appendChild(idBox);
     row.appendChild(benennung);
