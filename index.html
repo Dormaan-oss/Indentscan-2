@@ -93,6 +93,28 @@
   .row .flagbtn.active{ color:var(--red); }
   .row .flagbtn:active{ transform: scale(0.92); }
   .conf-dot{ width:7px; height:7px; border-radius:50%; flex:0 0 auto; }
+
+  .flag-modal{
+    position:fixed; inset:0; background:rgba(10,11,13,0.75); z-index:80;
+    display:flex; align-items:center; justify-content:center; padding:24px;
+  }
+  .flag-modal-card{
+    background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:18px;
+    width:100%; max-width:320px;
+  }
+  .flag-modal-title{ font-size:15px; font-weight:600; margin-bottom:4px; }
+  .flag-modal-sub{ font-size:12px; color:var(--muted); margin-bottom:12px; line-height:1.4; }
+  .flag-modal-card input{
+    width:100%; background:var(--panel-2); border:1px solid var(--line); border-radius:9px;
+    padding:10px 12px; color:var(--text); font-size:15px; font-family:var(--mono);
+  }
+  .flag-modal-card input:focus{ outline:2px solid var(--amber); }
+  .flag-modal-actions{ display:flex; gap:8px; margin-top:14px; }
+  .fm-btn{ flex:1; padding:10px 8px; border-radius:9px; border:none; font-size:12.5px; font-weight:600; }
+  .fm-save{ background:var(--amber); color:#1a1204; }
+  .fm-cancel{ background:var(--panel-2); color:var(--muted); }
+  .fm-remove{ background:transparent; color:var(--red); border:1px solid var(--red); }
+
   .conf-dot.high{ background:var(--green); }
   .conf-dot.mid{ background:var(--amber); }
   .conf-dot.low{ background:var(--red); }
@@ -253,6 +275,7 @@
       <div class="bc-id" id="bcIdText"></div>
       <div class="bc-benennung" id="bcBenennungText"></div>
     </div>
+    <div id="bcNotePageWrap" style="display:contents;"></div>
     <div id="qfPages" style="display:contents;"></div>
     <div class="bc-page bc-add-page" id="bcAddPage">
       <button class="qf-add-btn" id="qfAddBtn">+</button>
@@ -264,6 +287,19 @@
 </div>
 
 <div class="toast" id="toast"></div>
+
+<div class="flag-modal" id="flagModal" style="display:none;">
+  <div class="flag-modal-card">
+    <div class="flag-modal-title">Markierung</div>
+    <div class="flag-modal-sub">Stückzahl oder Kommentar (erscheint als eigener Strichcode)</div>
+    <input type="text" id="flagModalInput" placeholder="z. B. 5 oder Charge 12">
+    <div class="flag-modal-actions">
+      <button id="flagModalRemove" class="fm-btn fm-remove">Entfernen</button>
+      <button id="flagModalCancel" class="fm-btn fm-cancel">Abbrechen</button>
+      <button id="flagModalSave" class="fm-btn fm-save">Speichern</button>
+    </div>
+  </div>
+</div>
 
 <div id="landscapeWarning">
   <div class="rot">📱</div>
@@ -278,7 +314,7 @@
 (function(){
   "use strict";
 
-  const APP_VERSION = "v6";
+  const APP_VERSION = "v7";
   document.getElementById("appVersion").textContent = APP_VERSION;
 
   // ---------- Persistence ----------
@@ -521,10 +557,17 @@
   const bcBenennungText = document.getElementById("bcBenennungText");
   const bcClose = document.getElementById("bcClose");
   const bcPage0 = document.getElementById("bcPage0");
+  const bcNotePageWrap = document.getElementById("bcNotePageWrap");
   const qfPages = document.getElementById("qfPages");
   const bcAddPage = document.getElementById("bcAddPage");
   const qfAddBtn = document.getElementById("qfAddBtn");
   const bcDots = document.getElementById("bcDots");
+
+  const flagModal = document.getElementById("flagModal");
+  const flagModalInput = document.getElementById("flagModalInput");
+  const flagModalSave = document.getElementById("flagModalSave");
+  const flagModalRemove = document.getElementById("flagModalRemove");
+  const flagModalCancel = document.getElementById("flagModalCancel");
 
   function showToast(msg){
     toast.textContent = msg;
@@ -640,20 +683,17 @@
 
   function buildRow(c, idx, result){
     const row = document.createElement("div");
-    row.className = "row" + (c.confidence === "low" ? " low-conf" : "") + (c.flagged ? " flagged" : "");
+    row.className = "row" + (c.confidence === "low" ? " low-conf" : "") + (c.note ? " flagged" : "");
 
     const dot = document.createElement("div");
     dot.className = "conf-dot " + confClass(c.confidence);
 
     const flagBtn = document.createElement("button");
-    flagBtn.className = "flagbtn" + (c.flagged ? " active" : "");
-    flagBtn.setAttribute("aria-label","Zur Bearbeitung markieren");
+    flagBtn.className = "flagbtn" + (c.note ? " active" : "");
+    flagBtn.setAttribute("aria-label","Markieren / Stückzahl, Kommentar hinzufügen");
     flagBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 3v18h1.6v-6.4h9.9l-2.3-4.3 2.3-4.3H6.9V3H6z"/></svg>';
     flagBtn.addEventListener("click", () => {
-      c.flagged = !c.flagged;
-      flagBtn.classList.toggle("active", c.flagged);
-      row.classList.toggle("flagged", c.flagged);
-      persistCurrentResult(result);
+      openFlagModal(c, row, flagBtn, result);
     });
 
     const idBox = document.createElement("div");
@@ -692,7 +732,7 @@
     printBtn.textContent = "▤";
     printBtn.addEventListener("click", () => {
       rememberKnownId(idInput.value.trim());
-      showBarcode(idInput.value.trim(), c.benennung);
+      showBarcode(idInput.value.trim(), c.benennung, c.note);
     });
 
     row.appendChild(flagBtn);
@@ -725,7 +765,7 @@
     renderResults(result);
   });
 
-  function showBarcode(id, benennung){
+  function showBarcode(id, benennung, note){
     bcSvg.innerHTML = "";
     try{
       JsBarcode(bcSvg, id, {
@@ -742,6 +782,7 @@
     }
     bcIdText.textContent = id;
     bcBenennungText.textContent = benennung || "";
+    renderNotePage(note);
     barcodeSheet.style.display = "flex";
     renderQuickFieldPages();
     // Immer bei der Identnummer-Seite starten, ganz gleich wo zuletzt gewischt wurde.
@@ -749,6 +790,66 @@
   }
   function hideBarcode(){ barcodeSheet.style.display = "none"; }
   bcClose.addEventListener("click", hideBarcode);
+
+  // ---------- Notiz-Seite (Stückzahl / Kommentar) direkt nach der Identnummer ----------
+  function renderNotePage(note){
+    const trimmed = (note || "").trim();
+    if(!trimmed){
+      bcNotePageWrap.innerHTML = "";
+      return;
+    }
+    bcNotePageWrap.innerHTML = `
+      <div class="bc-page" id="bcNotePage">
+        <svg id="bcNoteSvg"></svg>
+        <div class="bc-id" id="bcNoteText"></div>
+        <div class="bc-benennung">Stückzahl / Kommentar</div>
+      </div>
+    `;
+    const svg = document.getElementById("bcNoteSvg");
+    try{
+      JsBarcode(svg, trimmed, { format:"CODE128", lineColor:"#000", width:3, height:110, displayValue:false, margin:10 });
+      document.getElementById("bcNoteText").textContent = trimmed;
+    }catch(e){
+      bcNotePageWrap.innerHTML = "";
+    }
+  }
+
+  // ---------- Kontextmenü zum Markieren (Stückzahl / Kommentar je Identnummer) ----------
+  let flagModalTarget = null; // { candidate, row, flagBtn, result }
+
+  function openFlagModal(candidate, row, flagBtn, result){
+    flagModalTarget = { candidate, row, flagBtn, result };
+    flagModalInput.value = candidate.note || "";
+    flagModal.style.display = "flex";
+    setTimeout(() => flagModalInput.focus(), 50);
+  }
+  function closeFlagModal(){
+    flagModal.style.display = "none";
+    flagModalTarget = null;
+  }
+  function applyFlagVisuals(){
+    if(!flagModalTarget) return;
+    const { candidate, row, flagBtn } = flagModalTarget;
+    const has = !!(candidate.note && candidate.note.trim());
+    row.classList.toggle("flagged", has);
+    flagBtn.classList.toggle("active", has);
+  }
+  flagModalSave.addEventListener("click", () => {
+    if(!flagModalTarget) return;
+    flagModalTarget.candidate.note = flagModalInput.value.trim();
+    applyFlagVisuals();
+    persistCurrentResult(flagModalTarget.result);
+    closeFlagModal();
+  });
+  flagModalRemove.addEventListener("click", () => {
+    if(!flagModalTarget) return;
+    flagModalTarget.candidate.note = "";
+    applyFlagVisuals();
+    persistCurrentResult(flagModalTarget.result);
+    closeFlagModal();
+  });
+  flagModalCancel.addEventListener("click", closeFlagModal);
+  flagModal.addEventListener("click", (e) => { if(e.target === flagModal) closeFlagModal(); });
 
   // ---------- Persistente Zusatzfelder (Lagerfach, Personalnummer, etc.) ----------
   // Bleiben unabhängig von der gerade angezeigten Identnummer erhalten.
@@ -841,7 +942,8 @@
   }
 
   function updateDots(){
-    const totalPages = 1 + quickFields.length + 1; // Identnummer + Freifelder + Add-Seite
+    const hasNotePage = !!document.getElementById("bcNotePage");
+    const totalPages = 1 + (hasNotePage?1:0) + quickFields.length + 1; // Identnummer + (Notiz) + Freifelder + Add-Seite
     bcDots.innerHTML = "";
     for(let i=0;i<totalPages;i++){
       const dot = document.createElement("span");

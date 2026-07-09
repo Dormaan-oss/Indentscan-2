@@ -1,6 +1,6 @@
 // IdentScan Service Worker
 // Version bump = neuer Cache-Name = erzwungenes Update auf allen Geräten.
-const CACHE_VERSION = "v6";
+const CACHE_VERSION = "v7";
 const CACHE_NAME = "identscan-" + CACHE_VERSION;
 
 const PRECACHE_URLS = [
