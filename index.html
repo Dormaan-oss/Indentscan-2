@@ -67,23 +67,6 @@
     padding: 12px 12px; margin-bottom:10px; display:flex; align-items:center; gap:10px;
   }
   .row.low-conf{ border-color: var(--amber-dim); }
-  .row .idbox{ flex:0 0 auto; min-width:0; }
-  .row .id{
-    font-family:var(--mono); font-size:19px; font-weight:600; letter-spacing:0.02em;
-    background:var(--panel-2); padding:6px 8px; border-radius:8px; display:inline-block;
-    border:none; color:var(--text); width: 122px;
-  }
-  .row .id:focus{ outline:2px solid var(--amber); }
-  .row .benennung{
-    flex:1; min-width:0; font-size:13px; color:var(--muted);
-    overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
-  }
-  .row .benennung[contenteditable="true"]{ color:var(--text); white-space:normal; }
-  .row .printbtn{
-    flex:0 0 auto; background:var(--amber); color:#1a1204; border:none; border-radius:9px;
-    width:44px; height:44px; font-size:19px; display:flex; align-items:center; justify-content:center;
-  }
-  .row .printbtn:active{ transform: scale(0.94); }
   .row.flagged{ border-color: var(--red); background: rgba(217,83,79,0.08); }
   .row .flagbtn{
     flex:0 0 auto; background:none; border:none; color:var(--muted);
@@ -115,6 +98,23 @@
   .fm-cancel{ background:var(--panel-2); color:var(--muted); }
   .fm-remove{ background:transparent; color:var(--red); border:1px solid var(--red); }
 
+  .row .idbox{ flex:0 0 auto; min-width:0; }
+  .row .id{
+    font-family:var(--mono); font-size:19px; font-weight:600; letter-spacing:0.02em;
+    background:var(--panel-2); padding:6px 8px; border-radius:8px; display:inline-block;
+    border:none; color:var(--text); width: 122px;
+  }
+  .row .id:focus{ outline:2px solid var(--amber); }
+  .row .benennung{
+    flex:1; min-width:0; font-size:13px; color:var(--muted);
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  }
+  .row .benennung[contenteditable="true"]{ color:var(--text); white-space:normal; }
+  .row .printbtn{
+    flex:0 0 auto; background:var(--amber); color:#1a1204; border:none; border-radius:9px;
+    width:44px; height:44px; font-size:19px; display:flex; align-items:center; justify-content:center;
+  }
+  .row .printbtn:active{ transform: scale(0.94); }
   .conf-dot.high{ background:var(--green); }
   .conf-dot.mid{ background:var(--amber); }
   .conf-dot.low{ background:var(--red); }
@@ -203,6 +203,10 @@
 
   ::-webkit-scrollbar{ display:none; }
 
+  .app-version{
+    position:fixed; right:8px; bottom:calc(6px + env(safe-area-inset-bottom)); z-index:5;
+    font-size:10px; color:var(--muted); opacity:0.5; letter-spacing:0.02em; pointer-events:none;
+  }
 
   #landscapeWarning{
     display:none; position:fixed; inset:0; background:var(--bg); z-index:999;
@@ -213,9 +217,6 @@
   @media (orientation: landscape){
     #app{ display:none; }
     #landscapeWarning{ display:flex; }
-  }  .app-version{
-    position:fixed; right:8px; bottom:calc(6px + env(safe-area-inset-bottom)); z-index:5;
-    font-size:10px; color:var(--muted); opacity:0.5; letter-spacing:0.02em; pointer-events:none;
   }
 </style>
 </head>
@@ -314,7 +315,7 @@
 (function(){
   "use strict";
 
-  const APP_VERSION = "v7";
+  const APP_VERSION = "v8";
   document.getElementById("appVersion").textContent = APP_VERSION;
 
   // ---------- Persistence ----------
@@ -337,7 +338,6 @@
   function rememberKnownId(id){
     knownIds.add(id);
     if(knownIds.size > 500){
-      // drop oldest-ish (Set has no order guarantee cheap trim; convert & slice)
       knownIds = new Set(Array.from(knownIds).slice(-500));
     }
     saveJSON(LS_KNOWN, Array.from(knownIds));
@@ -355,7 +355,7 @@
   // ---------- OCR text normalization / learning ----------
   function levenshtein(a, b){
     const m = a.length, n = b.length;
-    if(Math.abs(m-n) > 2) return 99; // fast reject, we only care about close matches
+    if(Math.abs(m-n) > 2) return 99;
     const dp = Array.from({length:m+1}, ()=> new Array(n+1).fill(0));
     for(let i=0;i<=m;i++) dp[i][0]=i;
     for(let j=0;j<=n;j++) dp[0][j]=j;
@@ -367,7 +367,6 @@
     return dp[m][n];
   }
 
-  // Common OCR confusions when a token should be a pure number
   const DIGIT_SUBS = { O:"0", o:"0", D:"0", Q:"0", I:"1", l:"1", i:"1", S:"5", s:"5", B:"8", Z:"2", G:"6", A:"4", T:"7" };
 
   function normalizeToDigits(raw){
@@ -375,7 +374,7 @@
   }
 
   function bestKnownMatch(candidate){
-    let best = null, bestDist = 2; // allow up to distance 1 as a confident auto-correct
+    let best = null, bestDist = 2;
     for(const known of knownIds){
       if(Math.abs(known.length - candidate.length) > 1) continue;
       const d = levenshtein(candidate, known);
@@ -385,13 +384,10 @@
   }
 
   function resolveIdToken(rawText){
-    // 1) exact learned correction
     if(corrections[rawText]) return { id: corrections[rawText], source:"correction", conf:"high" };
-    // 2) normalize letter/digit confusions then test pattern
     const norm = normalizeToDigits(rawText);
     const isNumeric = /^\d{6,9}$/.test(norm);
     if(!isNumeric) return null;
-    // 3) fuzzy match against known-good ids (learned over time)
     const known = bestKnownMatch(norm);
     if(known) return { id: known, source:"known", conf: known===norm ? "high":"mid" };
     return { id: norm, source:"ocr", conf: (norm===rawText ? "mid" : "mid") };
@@ -406,7 +402,7 @@
         for(const l of (p.lines||[])){
           for(const w of (l.words||[])){
             if(!w.text || !w.text.trim()) continue;
-            if(w.confidence !== undefined && w.confidence < 25) continue; // drop noise/checkmarks
+            if(w.confidence !== undefined && w.confidence < 25) continue;
             words.push({ text: w.text.trim(), bbox: w.bbox, confidence: w.confidence });
           }
         }
@@ -440,12 +436,10 @@
       if(row.words.length === 0) continue;
       let idIdx = -1, resolved = null;
 
-      // try each word alone first
       for(let i=0;i<row.words.length;i++){
         const r = resolveIdToken(row.words[i].text);
         if(r){ idIdx = i; resolved = r; break; }
       }
-      // fallback: try merging first two adjacent left-side words (split numbers)
       if(idIdx === -1 && row.words.length >= 2){
         const a = row.words[0], b = row.words[1];
         const gap = b.bbox.x0 - a.bbox.x1;
@@ -468,7 +462,6 @@
         y: row.yc
       });
     }
-    // de-duplicate identical IDs that appear twice (e.g. wrapped rows), keep first
     const seen = new Set();
     return results.filter(r => {
       if(seen.has(r.id)) return false;
@@ -483,7 +476,7 @@
     let { naturalWidth: w, naturalHeight: h } = imgEl;
     let scale = 1;
     if(Math.max(w,h) < 1400){
-      scale = 1400 / Math.max(w,h); // upscale small photos for better OCR
+      scale = 1400 / Math.max(w,h);
     } else if(Math.max(w,h) > maxDim){
       scale = maxDim / Math.max(w,h);
     }
@@ -494,7 +487,6 @@
     ctx.drawImage(imgEl, 0, 0, cw, ch);
     const imgData = ctx.getImageData(0,0,cw,ch);
     const d = imgData.data;
-    // grayscale + simple contrast stretch
     let min=255, max=0;
     for(let i=0;i<d.length;i+=4){
       const g = 0.299*d[i] + 0.587*d[i+1] + 0.114*d[i+2];
@@ -596,7 +588,7 @@
     try{
       const img = await loadImage(objectUrl);
       const canvas = preprocessToCanvas(img);
-      URL.revokeObjectURL(objectUrl); // discard the original photo reference immediately
+      URL.revokeObjectURL(objectUrl);
 
       setOverlay(true, "Erkennung wird vorbereitet…");
       const worker = await getWorker();
@@ -604,7 +596,6 @@
       setOverlay(true, "Text wird erkannt…");
       const { data } = await worker.recognize(canvas, {}, { blocks: true });
 
-      // wipe the canvas pixels (nothing is persisted anyway, but be explicit)
       canvas.width = 0; canvas.height = 0;
 
       const words = collectWords(data);
@@ -785,7 +776,6 @@
     renderNotePage(note);
     barcodeSheet.style.display = "flex";
     renderQuickFieldPages();
-    // Immer bei der Identnummer-Seite starten, ganz gleich wo zuletzt gewischt wurde.
     requestAnimationFrame(() => { bcScroller.scrollLeft = 0; updateDots(); });
   }
   function hideBarcode(){ barcodeSheet.style.display = "none"; }
@@ -815,13 +805,15 @@
   }
 
   // ---------- Kontextmenü zum Markieren (Stückzahl / Kommentar je Identnummer) ----------
-  let flagModalTarget = null; // { candidate, row, flagBtn, result }
+  let flagModalTarget = null;
 
   function openFlagModal(candidate, row, flagBtn, result){
     flagModalTarget = { candidate, row, flagBtn, result };
     flagModalInput.value = candidate.note || "";
     flagModal.style.display = "flex";
-    setTimeout(() => flagModalInput.focus(), 50);
+    // Wichtig für iOS Safari: focus() muss synchron im Klick-Handler laufen,
+    // sonst öffnet sich die Tastatur nicht (kein setTimeout hier!).
+    flagModalInput.focus();
   }
   function closeFlagModal(){
     flagModal.style.display = "none";
@@ -852,7 +844,6 @@
   flagModal.addEventListener("click", (e) => { if(e.target === flagModal) closeFlagModal(); });
 
   // ---------- Persistente Zusatzfelder (Lagerfach, Personalnummer, etc.) ----------
-  // Bleiben unabhängig von der gerade angezeigten Identnummer erhalten.
   let quickFields = loadJSON(LS_QUICKFIELDS, []);
 
   function saveQuickFields(){ saveJSON(LS_QUICKFIELDS, quickFields); }
@@ -923,14 +914,10 @@
     quickFields.push({ id, value: "" });
     saveQuickFields();
     renderQuickFieldPages();
-    requestAnimationFrame(() => {
-      const page = qfPages.querySelector(`.qf-page[data-id="${id}"]`);
-      if(page) page.scrollIntoView({ behavior:"smooth", inline:"center", block:"nearest" });
-      setTimeout(() => {
-        const input = qfPages.querySelector(`input[data-id="${id}"]`);
-        if(input) input.focus();
-      }, 350);
-    });
+    const page = qfPages.querySelector(`.qf-page[data-id="${id}"]`);
+    if(page) page.scrollIntoView({ behavior:"smooth", inline:"center", block:"nearest" });
+    // Kein Auto-Fokus mit Verzögerung: iOS öffnet die Tastatur nur bei direkter,
+    // synchroner Nutzerinteraktion. Der Nutzer tippt hier stattdessen selbst ins Feld.
   }
   qfAddBtn.addEventListener("click", addQuickField);
 
@@ -943,7 +930,7 @@
 
   function updateDots(){
     const hasNotePage = !!document.getElementById("bcNotePage");
-    const totalPages = 1 + (hasNotePage?1:0) + quickFields.length + 1; // Identnummer + (Notiz) + Freifelder + Add-Seite
+    const totalPages = 1 + (hasNotePage?1:0) + quickFields.length + 1;
     bcDots.innerHTML = "";
     for(let i=0;i<totalPages;i++){
       const dot = document.createElement("span");
@@ -962,7 +949,6 @@
     scrollTicking = true;
     requestAnimationFrame(() => { highlightActiveDot(); scrollTicking = false; });
   });
-
 
   // ---------- Hochformat erzwingen (greift im installierten/eigenständigen App-Modus) ----------
   if(screen.orientation && screen.orientation.lock){
@@ -1001,8 +987,6 @@
       });
     });
 
-    // Android öffnet installierte PWAs oft aus dem Hintergrund heraus wieder,
-    // ohne einen echten Neustart/Navigation auszulösen - deshalb hier aktiv nachfragen.
     document.addEventListener("visibilitychange", () => {
       if(document.visibilityState === "visible" && swReg){
         swReg.update().catch(()=>{});

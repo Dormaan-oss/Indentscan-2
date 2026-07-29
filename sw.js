@@ -1,6 +1,6 @@
 // IdentScan Service Worker
 // Version bump = neuer Cache-Name = erzwungenes Update auf allen Geräten.
-const CACHE_VERSION = "v7";
+const CACHE_VERSION = "v8";
 const CACHE_NAME = "identscan-" + CACHE_VERSION;
 
 const PRECACHE_URLS = [
@@ -44,8 +44,8 @@ self.addEventListener("activate", (event) => {
 
 // Strategy:
 // - Precached large/static assets (tesseract, jsbarcode, traineddata, icons): cache-first (they never change per version).
-// - index.html / manifest: network-first with cache fallback, so a fresh deploy is picked up when online,
-//   but the app still opens offline from cache.
+// - index.html / manifest: network-first (bypassing HTTP cache) with cache fallback, so a fresh deploy is picked up
+//   when online, but the app still opens offline from cache.
 self.addEventListener("fetch", (event) => {
   const req = event.request;
   if (req.method !== "GET") return;
